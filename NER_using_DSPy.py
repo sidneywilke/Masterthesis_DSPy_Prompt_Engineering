@@ -1,19 +1,19 @@
-import os
-import tempfile
 from datasets import load_dataset
 from typing import Dict, Any, List
 import dspy
-
-
 import logging
 import sys
-import io
+from dotenv import load_dotenv
+import os
+import mlflow
 
-# Optionally change console encoding to UTF-8 (run in Windows cmd)
-# Uncomment the next line if you face encoding issues in the console.
-# sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+load_dotenv()
 
-# Create (or get) the logger and clear previous handlers if re-running in an interactive session
+mlflow.set_tracking_uri("http://localhost:5000")
+mlflow.set_experiment("DSPy")
+mlflow.dspy.autolog()
+
+# Logging the terminal outputs to a txt file to evaluate at as later stage
 logger = logging.getLogger('my_logger')
 logger.setLevel(logging.INFO)
 if logger.hasHandlers():
@@ -22,12 +22,12 @@ if logger.hasHandlers():
 # Define a formatter for consistent log formatting
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
-# Set up a file handler with UTF-8 encoding
+# Set up a file handler
 file_handler = logging.FileHandler('output.log', mode='a', encoding='utf-8')
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(formatter)
 
-# Set up a console handler (it will use sys.stdout which we've optionally set to UTF-8)
+# Set up a console handler
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
@@ -63,22 +63,6 @@ sys.stdout = LoggerWriter(logger.info)
 sys.stderr = LoggerWriter(logger.error)
 
 
-
-
-def load_conll_dataset() -> dict:
-    """
-    Loads the CoNLL-2003 dataset into train, validation, and test splits.
-
-    Returns:
-        dict: Dataset splits with keys 'train', 'validation', and 'test'.
-    """
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Use a temporary Hugging Face cache directory for compatibility with certain hosted notebook
-        # environments that don't support the default Hugging Face cache directory
-        os.environ["HF_DATASETS_CACHE"] = temp_dir
-        return load_dataset("conll2003", trust_remote_code=True)
-
-
 def extract_people_entities(data_row: Dict[str, Any]) -> List[str]:
     """
     Extracts entities referring to people from a row of the CoNLL-2003 dataset.
@@ -96,7 +80,7 @@ def extract_people_entities(data_row: Dict[str, Any]) -> List[str]:
     ]
 
 
-def prepare_dataset(data_split, start: int, end: int) -> List[dspy.Example]:
+def prepare_dataset(data_split) -> List[dspy.Example]:
     """
     Prepares a sliced dataset split for use with DSPy.
 
@@ -113,20 +97,21 @@ def prepare_dataset(data_split, start: int, end: int) -> List[dspy.Example]:
             tokens=row["tokens"],
             expected_extracted_people=extract_people_entities(row)
         ).with_inputs("tokens")
-        for row in data_split.select(range(start, end))
+        for row in data_split
     ]
 
-
 # Load the dataset
-dataset = load_conll_dataset()
+dataset = load_dataset("conll2003", trust_remote_code=True)
 
-# Prepare the training and test sets
-train_set = prepare_dataset(dataset["train"], 300, 350)
-test_set = prepare_dataset(dataset["test"], 400, 600)
+# Prepare the training (max. 1000 items) and test sets
+train_set = prepare_dataset(dataset["train"])[:1000]
+test_set = prepare_dataset(dataset["test"])
 
 
 
-from typing import List
+
+
+
 
 class PeopleExtraction(dspy.Signature):
     """
@@ -138,18 +123,20 @@ class PeopleExtraction(dspy.Signature):
 
 people_extractor = dspy.ChainOfThought(PeopleExtraction)
 
-lm = dspy.LM('ollama_chat/qwen2.5:14b', api_base='http://localhost:11434', api_key='')
+lm = dspy.LM("ollama_chat/llama3:8b", api_base="http://catalpa-llm.fernuni-hagen.de:11434", api_key='')
 dspy.configure(lm=lm)
 
+
+#Calculate precision
 def precision(tp: int, fp: int) -> float:
     # Handle division by zero
     return 0.0 if tp + fp == 0 else tp / (tp + fp)
 
-
+#Calculate recall
 def recall(tp: int, fn: int) -> float:
     return 0.0 if tp + fn == 0 else tp / (tp + fn)
 
-
+#Calculate F1-Score
 def f1_score(tp: int, fp: int, fn: int) -> float:
     prec = precision(tp, fp)
     rec = recall(tp, fn)
@@ -191,17 +178,24 @@ evaluate_correctness = dspy.Evaluate(
     display_table=True,
     return_outputs=True
 )
+#Evaluate the F1-score on the test set
+evaluate_correctness(people_extractor, devset=test_set, return_outputs=True)
 
 
 
-#evaluate_correctness(people_extractor, devset=test_set, return_outputs=True)
 
 
 
-'''mipro_optimizer = dspy.MIPROv2(
+
+
+
+'''
+# MIPROv2 optimization
+mipro_optimizer = dspy.MIPROv2(
     metric=extraction_correctness_metric,
     auto="medium",
 )
+
 optimized_people_extractor = mipro_optimizer.compile(
     people_extractor,
     trainset=train_set,
@@ -210,17 +204,22 @@ optimized_people_extractor = mipro_optimizer.compile(
     minibatch=False
 )
 
+#Evaluate the F1-score with the optimzied extractor on the test set
 evaluate_correctness(optimized_people_extractor, devset=test_set)
-dspy.inspect_history(n=1)'''
 
-
+#BootstrapFewShot optimization
 from dspy.teleprompt import BootstrapFewShotWithOptuna
 bootstrap_optimizer = BootstrapFewShotWithOptuna(
     metric=extraction_correctness_metric,
-    max_bootstrapped_demos=2,
+    max_bootstrapped_demos=4,
     num_candidate_programs=8,
+    max_rounds=10
 )
+
 bootstrap_optimizer_compiled=bootstrap_optimizer.compile(people_extractor, max_demos=4, trainset=train_set)
 
+#Evaluate the F1-score with the bootstrapped optimizer on the test set
 evaluate_correctness(bootstrap_optimizer_compiled, devset=test_set)
-dspy.inspect_history(n=1)
+
+#Inspect the system prompts to examine the evolution of the system prompts after the optimization process
+dspy.inspect_history(n=1)'''
