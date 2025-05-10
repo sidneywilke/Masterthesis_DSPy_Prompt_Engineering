@@ -6,6 +6,7 @@ import sys
 from dotenv import load_dotenv
 import os
 import mlflow
+from dspy import LabeledFewShot, KNNFewShot, COPRO
 
 load_dotenv()
 
@@ -121,9 +122,14 @@ class PeopleExtraction(dspy.Signature):
     tokens: list[str] = dspy.InputField(desc="tokenized text")
     extracted_people: list[str] = dspy.OutputField(desc="all tokens referring to specific people extracted from the tokenized text")
 
+llm=os.getenv(SMALL_LLM) "ollama_chat/gemma3:4b"
+api=os.getenv(SERVER) "http://localhost:11434"
+
+print("---------------------------------")
+print(llm+"  "+api+" Runde 1")
+
 people_extractor = dspy.ChainOfThought(PeopleExtraction)
-print("test")
-lm = dspy.LM("ollama_chat/gemma3:4b", api_base="http://localhost:11434", api_key='')
+lm = dspy.LM(llm, api_base=api, api_key='')
 dspy.configure(lm=lm)
 
 
@@ -170,6 +176,8 @@ def extraction_correctness_metric(example: dspy.Example, prediction: dspy.Predic
     return f1_score(tp, fp, fn)
 
 
+print("---------------------------------------------------")
+print("-----------------------Baseline--------------------")
 evaluate_correctness = dspy.Evaluate(
     devset=test_set,
     metric=extraction_correctness_metric,
@@ -182,44 +190,129 @@ evaluate_correctness = dspy.Evaluate(
 evaluate_correctness(people_extractor, devset=test_set, return_outputs=True)
 
 
+print("---------------------------------------------------")
+print("-----------------------LabeledFewShot--------------")
 
+# 3. Create the teleprompter
+fewshot_optimzer = LabeledFewShot(k=5)
 
+# 4. Compile (i.e., inject your 5-shot examples)
+fewshot_optimzer_compile = fewshot_optimzer.compile(people_extractor, trainset=train_set)
 
+evaluate_correctness(fewshot_optimzer_compile, devset=test_set)
 
+dspy.inspect_history(n=1)
 
+print("---------------------------------------------------")
+print("-----------------------KNNFewShot------------------")
+from sentence_transformers import SentenceTransformer
 
+# Initialize KNNFewShot with a sentence transformer model
+knn_fewshot_optimizer = KNNFewShot(
+    k=3,
+    trainset=train_set,
+    vectorizer=dspy.Embedder(SentenceTransformer("all-MiniLM-L6-v2").encode)
+)
 
-'''
+# Compile the QA module with few-shot learning
+knn_fewshot_optimizer_compile = knn_fewshot_optimizer.compile(people_extractor)
+
+# Use the compiled module
+evaluate_correctness(knn_fewshot_optimizer_compile, devset=test_set)
+
+dspy.inspect_history(n=1)
+print("---------------------------------------------------")
+print("-----------------------MIPROv2----------------------")
 # MIPROv2 optimization
 mipro_optimizer = dspy.MIPROv2(
     metric=extraction_correctness_metric,
     auto="medium",
 )
 
-optimized_people_extractor = mipro_optimizer.compile(
+mipro_optimized_people_extractor = mipro_optimizer.compile(
     people_extractor,
     trainset=train_set,
     max_bootstrapped_demos=4,
     requires_permission_to_run=False,
     minibatch=False
 )
+# 5. Inspect best instruction
+evaluate_correctness(mipro_optimized_people_extractor, devset=test_set)
+dspy.inspect_history(n=1)
 
-#Evaluate the F1-score with the optimzied extractor on the test set
-evaluate_correctness(optimized_people_extractor, devset=test_set)
+print("---------------------------------------------------")
+print("-----------------------COPRO----------------------")
 
-#BootstrapFewShot optimization
-from dspy.teleprompt import BootstrapFewShotWithOptuna
-bootstrap_optimizer = BootstrapFewShotWithOptuna(
-    metric=extraction_correctness_metric,
-    max_bootstrapped_demos=4,
-    num_candidate_programs=8,
-    max_rounds=10
+# 3. Initialize COPRO
+copro_optimizer = COPRO(
+    prompt_model=lm,
+    metric=extraction_correctness_metric(),
+    breadth=5,
+    depth=4,
+    init_temperature=1.2,
+    track_stats=True,
 )
 
-bootstrap_optimizer_compiled=bootstrap_optimizer.compile(people_extractor, max_demos=4, trainset=train_set)
+# 4. Compile (optimize) your program
+copro_optimizer_compiled = copro_optimizer.compile(
+    student=people_extractor,
+    trainset=train_set,
+    eval_kwargs=dict(num_threads=8)
+)
+
+# 5. Inspect best instruction
+evaluate_correctness(copro_optimizer_compiled, devset=test_set)
+dspy.inspect_history(n=1)
+
+
+
+print("---------------------------------------------------")
+print("-----------------------BootstrapFewShot------------")
+
+#BootstrapFewShot optimization
+from dspy.teleprompt import BootstrapFewShot
+bootstrap_fewshot_optimizer= BootstrapFewShot(
+    metric=extraction_correctness_metric,
+    max_bootstrapped_demos=4,
+    max_labeled_demos=16,
+    max_rounds=1,
+    max_errors=5,
+    teacher_settings=dict(lm=lm)
+)
+
+bootstrap_fewshot_optimizer_compiled=bootstrap_fewshot_optimizer.compile(people_extractor, trainset=train_set)
 
 #Evaluate the F1-score with the bootstrapped optimizer on the test set
-evaluate_correctness(bootstrap_optimizer_compiled, devset=test_set)
+evaluate_correctness(bootstrap_fewshot_optimizer_compiled, devset=test_set)
 
 #Inspect the system prompts to examine the evolution of the system prompts after the optimization process
-dspy.inspect_history(n=1)'''
+dspy.inspect_history(n=1)
+
+print("---------------------------------------------------")
+print("-----------------------BootstrapFewShotWithRandomSearch------------")
+
+#BootstrapFewShot optimization
+from dspy.teleprompt import BootstrapFewShotWithRandomSearch
+bootstrap_fewshot_withrandom_optimizer = BootstrapFewShotWithRandomSearch(
+    metric=extraction_correctness_metric,
+    max_bootstrapped_demos=2,
+    num_candidate_programs=8,
+    num_threads=8)
+
+bootstrap_fewshot_withrandom_optimizer_compiled=bootstrap_fewshot_withrandom_optimizer.compile(people_extractor, trainset=train_set)
+
+#Evaluate the F1-score with the bootstrapped optimizer on the test set
+evaluate_correctness(bootstrap_fewshot_withrandom_optimizer_compiled, devset=test_set)
+
+#Inspect the system prompts to examine the evolution of the system prompts after the optimization process
+dspy.inspect_history(n=1)
+
+print("---------------------------------------------------")
+print("-----------------------BootstrapFinetune----------------------")
+# Optimize via BootstrapFinetune.
+bootstrap_finetune_optimizer = dspy.BootstrapFinetune(metric=extraction_correctness_metric, num_threads=24)
+bootstrap_finetune_optimized = bootstrap_finetune_optimizer.compile(people_extractor, trainset=train_set)
+
+evaluate_correctness(bootstrap_finetune_optimized, devset=test_set)
+
+dspy.inspect_history(n=1)
