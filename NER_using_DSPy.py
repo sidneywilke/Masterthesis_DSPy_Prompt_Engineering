@@ -23,7 +23,7 @@ if logger.hasHandlers():
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
 # Set up a file handler
-file_handler = logging.FileHandler('output.log', mode='a', encoding='utf-8')
+file_handler = logging.FileHandler('output_neu.log', mode='a', encoding='utf-8')
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(formatter)
 
@@ -122,8 +122,8 @@ class PeopleExtraction(dspy.Signature):
     extracted_people: list[str] = dspy.OutputField(desc="all tokens referring to specific people extracted from the tokenized text")
 
 people_extractor = dspy.ChainOfThought(PeopleExtraction)
-
-lm = dspy.LM("ollama_chat/llama3:8b", api_base="http://catalpa-llm.fernuni-hagen.de:11434", api_key='')
+print("test")
+lm = dspy.LM("ollama_chat/gemma3:4b", api_base="http://localhost:11434", api_key='')
 dspy.configure(lm=lm)
 
 
