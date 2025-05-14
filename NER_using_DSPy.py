@@ -4,15 +4,17 @@ import dspy
 import logging
 import sys
 from dotenv import load_dotenv
-import os
+
 import mlflow
 from dspy import LabeledFewShot, KNNFewShot, COPRO
+import litellm
+litellm.drop_params = True
 
 load_dotenv()
 
-mlflow.set_tracking_uri("http://localhost:5000")
-mlflow.set_experiment("DSPy")
-mlflow.dspy.autolog()
+#mlflow.set_tracking_uri("http://localhost:5000")
+#mlflow.set_experiment("DSPy")
+#mlflow.dspy.autolog()
 
 # Logging the terminal outputs to a txt file to evaluate at as later stage
 logger = logging.getLogger('my_logger')
@@ -122,8 +124,11 @@ class PeopleExtraction(dspy.Signature):
     tokens: list[str] = dspy.InputField(desc="tokenized text")
     extracted_people: list[str] = dspy.OutputField(desc="all tokens referring to specific people extracted from the tokenized text")
 
-llm=os.getenv(SMALL_LLM) "ollama_chat/gemma3:4b"
-api=os.getenv(SERVER) "http://localhost:11434"
+
+import os
+
+llm= os.getenv("TINY_LLM")
+api=os.getenv("LOCAL_API")
 
 print("---------------------------------")
 print(llm+"  "+api+" Runde 1")
@@ -186,6 +191,7 @@ evaluate_correctness = dspy.Evaluate(
     display_table=True,
     return_outputs=True
 )
+'''
 #Evaluate the F1-score on the test set
 evaluate_correctness(people_extractor, devset=test_set, return_outputs=True)
 
@@ -238,7 +244,7 @@ mipro_optimized_people_extractor = mipro_optimizer.compile(
 )
 # 5. Inspect best instruction
 evaluate_correctness(mipro_optimized_people_extractor, devset=test_set)
-dspy.inspect_history(n=1)
+dspy.inspect_history(n=1)'''
 
 print("---------------------------------------------------")
 print("-----------------------COPRO----------------------")
@@ -246,7 +252,7 @@ print("-----------------------COPRO----------------------")
 # 3. Initialize COPRO
 copro_optimizer = COPRO(
     prompt_model=lm,
-    metric=extraction_correctness_metric(),
+    metric=extraction_correctness_metric,
     breadth=5,
     depth=4,
     init_temperature=1.2,
@@ -254,10 +260,12 @@ copro_optimizer = COPRO(
 )
 
 # 4. Compile (optimize) your program
-copro_optimizer_compiled = copro_optimizer.compile(
-    student=people_extractor,
-    trainset=train_set,
-    eval_kwargs=dict(num_threads=8)
+with dspy.context(num_completions=1):
+    copro_optimizer_compiled = copro_optimizer.compile(
+        student=people_extractor,
+        trainset=train_set,
+
+        eval_kwargs=dict(num_threads=8)
 )
 
 # 5. Inspect best instruction
