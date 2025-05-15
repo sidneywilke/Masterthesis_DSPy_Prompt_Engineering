@@ -191,7 +191,7 @@ evaluate_correctness = dspy.Evaluate(
     display_table=True,
     return_outputs=True
 )
-'''
+
 #Evaluate the F1-score on the test set
 evaluate_correctness(people_extractor, devset=test_set, return_outputs=True)
 
@@ -232,19 +232,24 @@ print("-----------------------MIPROv2----------------------")
 # MIPROv2 optimization
 mipro_optimizer = dspy.MIPROv2(
     metric=extraction_correctness_metric,
-    auto="medium",
+    max_labeled_demos=4,
+    max_bootstrapped_demos=4,
+    num_candidates= 16,
+    num_threads=8,
+    init_temperature=1.2,
 )
 
 mipro_optimized_people_extractor = mipro_optimizer.compile(
     people_extractor,
     trainset=train_set,
-    max_bootstrapped_demos=4,
+    num_trials= 25,
+    minibatch= True,
     requires_permission_to_run=False,
-    minibatch=False
 )
+
 # 5. Inspect best instruction
 evaluate_correctness(mipro_optimized_people_extractor, devset=test_set)
-dspy.inspect_history(n=1)'''
+dspy.inspect_history(n=1)
 
 print("---------------------------------------------------")
 print("-----------------------COPRO----------------------")
@@ -303,7 +308,7 @@ print("-----------------------BootstrapFewShotWithRandomSearch------------")
 from dspy.teleprompt import BootstrapFewShotWithRandomSearch
 bootstrap_fewshot_withrandom_optimizer = BootstrapFewShotWithRandomSearch(
     metric=extraction_correctness_metric,
-    max_bootstrapped_demos=2,
+    max_bootstrapped_demos=4,
     num_candidate_programs=8,
     num_threads=8)
 
@@ -315,12 +320,14 @@ evaluate_correctness(bootstrap_fewshot_withrandom_optimizer_compiled, devset=tes
 #Inspect the system prompts to examine the evolution of the system prompts after the optimization process
 dspy.inspect_history(n=1)
 
+'''
 print("---------------------------------------------------")
 print("-----------------------BootstrapFinetune----------------------")
 # Optimize via BootstrapFinetune.
-bootstrap_finetune_optimizer = dspy.BootstrapFinetune(metric=extraction_correctness_metric, num_threads=24)
+dspy.settings.experimental = True
+bootstrap_finetune_optimizer = dspy.BootstrapFinetune(metric=extraction_correctness_metric, num_threads=8)
 bootstrap_finetune_optimized = bootstrap_finetune_optimizer.compile(people_extractor, trainset=train_set)
 
 evaluate_correctness(bootstrap_finetune_optimized, devset=test_set)
 
-dspy.inspect_history(n=1)
+dspy.inspect_history(n=1)'''
