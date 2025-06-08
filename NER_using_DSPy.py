@@ -193,7 +193,7 @@ evaluate_correctness = dspy.Evaluate(
     return_outputs=True
 )
 
-print("---------------------------------------------------")
+'''print("---------------------------------------------------")
 print("-----------------------Baseline--------------------")
 
 
@@ -212,7 +212,7 @@ fewshot_optimzer_compile = fewshot_optimzer.compile(people_extractor, trainset=t
 evaluate_correctness(fewshot_optimzer_compile, devset=test_set)
 
 dspy.inspect_history(n=1)
-
+'''
 
 
 print("---------------------------------------------------")
