@@ -5,7 +5,6 @@ import logging
 import sys
 from dotenv import load_dotenv
 
-import mlflow
 from dspy import LabeledFewShot, KNNFewShot, COPRO
 import litellm
 litellm.drop_params = True
@@ -26,7 +25,7 @@ if logger.hasHandlers():
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
 # Set up a file handler
-file_handler = logging.FileHandler('output_neu_final.log', mode='a', encoding='utf-8')
+file_handler = logging.FileHandler('output_neu_final_large5.log', mode='a', encoding='utf-8')
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(formatter)
 
@@ -86,7 +85,7 @@ def extract_people_entities(data_row: Dict[str, Any]) -> List[str]:
     ]
 
 
-def prepare_dataset(data_split) -> List[dspy.Example]:
+def prepare_dataset(data_split, start: int, end: int) -> List[dspy.Example]:
     """
     Prepares a sliced dataset split for use with DSPy.
 
@@ -103,15 +102,14 @@ def prepare_dataset(data_split) -> List[dspy.Example]:
             tokens=row["tokens"],
             expected_extracted_people=extract_people_entities(row)
         ).with_inputs("tokens")
-        for row in data_split
-    ]
+        for row in data_split.select(range(start, end))]
 
 # Load the dataset
 dataset = load_dataset("conll2003", trust_remote_code=True)
 
 # Prepare the training (max. 1000 items) and test sets
-train_set = prepare_dataset(dataset["train"])[:1000]
-test_set = prepare_dataset(dataset["test"])
+train_set = prepare_dataset(dataset["train"], 0, 200)
+test_set = prepare_dataset(dataset["test"], 1500, 2500)
 
 
 
@@ -193,7 +191,7 @@ evaluate_correctness = dspy.Evaluate(
     return_outputs=True
 )
 
-'''print("---------------------------------------------------")
+print("---------------------------------------------------")
 print("-----------------------Baseline--------------------")
 
 
@@ -212,7 +210,7 @@ fewshot_optimzer_compile = fewshot_optimzer.compile(people_extractor, trainset=t
 evaluate_correctness(fewshot_optimzer_compile, devset=test_set)
 
 dspy.inspect_history(n=1)
-'''
+
 
 
 print("---------------------------------------------------")
@@ -243,15 +241,17 @@ mipro_optimizer = dspy.MIPROv2(
     metric=extraction_correctness_metric,
     max_labeled_demos=4,
     max_bootstrapped_demos=4,
-    num_candidates= 16,
+    num_candidates= 4,
     num_threads=8,
     init_temperature=1.2,
+    auto=None
 )
 
 mipro_optimized_people_extractor = mipro_optimizer.compile(
     people_extractor,
     trainset=train_set,
-    num_trials= 25,
+
+    num_trials= 4,
     minibatch= True,
     requires_permission_to_run=False,
 )
@@ -322,7 +322,7 @@ from dspy.teleprompt import BootstrapFewShotWithRandomSearch
 bootstrap_fewshot_withrandom_optimizer = BootstrapFewShotWithRandomSearch(
     metric=extraction_correctness_metric,
     max_bootstrapped_demos=4,
-    num_candidate_programs=8,
+    num_candidate_programs=4,
     num_threads=8)
 
 bootstrap_fewshot_withrandom_optimizer_compiled=bootstrap_fewshot_withrandom_optimizer.compile(people_extractor, trainset=train_set)
