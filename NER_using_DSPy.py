@@ -25,7 +25,7 @@ if logger.hasHandlers():
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
 # Set up a file handler
-file_handler = logging.FileHandler('output_neu_final_large5.log', mode='a', encoding='utf-8')
+file_handler = logging.FileHandler('output_neu_final_tiny5.log', mode='a', encoding='utf-8')
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(formatter)
 
@@ -65,9 +65,6 @@ sys.stdout = LoggerWriter(logger.info)
 sys.stderr = LoggerWriter(logger.error)
 
 
-
-
-
 def extract_people_entities(data_row: Dict[str, Any]) -> List[str]:
     """
     Extracts entities referring to people from a row of the CoNLL-2003 dataset.
@@ -102,7 +99,8 @@ def prepare_dataset(data_split, start: int, end: int) -> List[dspy.Example]:
             tokens=row["tokens"],
             expected_extracted_people=extract_people_entities(row)
         ).with_inputs("tokens")
-        for row in data_split.select(range(start, end))]
+        for row in data_split.select(range(start, end))
+    ]
 
 # Load the dataset
 dataset = load_dataset("conll2003", trust_remote_code=True)
@@ -110,6 +108,7 @@ dataset = load_dataset("conll2003", trust_remote_code=True)
 # Prepare the training (max. 1000 items) and test sets
 train_set = prepare_dataset(dataset["train"], 0, 200)
 test_set = prepare_dataset(dataset["test"], 1500, 2500)
+
 
 
 
@@ -125,8 +124,8 @@ class PeopleExtraction(dspy.Signature):
 
 import os
 
-llm= os.getenv("LARGE_LLM")
-api=os.getenv("SERVER_API")
+llm= os.getenv("TINY_LLM")
+api=os.getenv("LOCAL_API")
 
 print("---------------------------------")
 print(llm+"  "+api+" Runde 1")
@@ -244,13 +243,11 @@ mipro_optimizer = dspy.MIPROv2(
     num_candidates= 4,
     num_threads=8,
     init_temperature=1.2,
-    auto=None
 )
 
 mipro_optimized_people_extractor = mipro_optimizer.compile(
     people_extractor,
     trainset=train_set,
-
     num_trials= 4,
     minibatch= True,
     requires_permission_to_run=False,
@@ -322,7 +319,7 @@ from dspy.teleprompt import BootstrapFewShotWithRandomSearch
 bootstrap_fewshot_withrandom_optimizer = BootstrapFewShotWithRandomSearch(
     metric=extraction_correctness_metric,
     max_bootstrapped_demos=4,
-    num_candidate_programs=4,
+    num_candidate_programs=8,
     num_threads=8)
 
 bootstrap_fewshot_withrandom_optimizer_compiled=bootstrap_fewshot_withrandom_optimizer.compile(people_extractor, trainset=train_set)
