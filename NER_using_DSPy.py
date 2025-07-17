@@ -25,7 +25,7 @@ if logger.hasHandlers():
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
 # Set up a file handler
-file_handler = logging.FileHandler('output_neu_final_tiny5.log', mode='a', encoding='utf-8')
+file_handler = logging.FileHandler('output_neu_final_mini_2.log', mode='a', encoding='utf-8')
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(formatter)
 
@@ -124,7 +124,7 @@ class PeopleExtraction(dspy.Signature):
 
 import os
 
-llm= os.getenv("TINY_LLM")
+llm= "ollama_chat/qwen3:1.7b"
 api=os.getenv("LOCAL_API")
 
 print("---------------------------------")
@@ -190,7 +190,7 @@ evaluate_correctness = dspy.Evaluate(
     return_outputs=True
 )
 
-print("---------------------------------------------------")
+'''print("---------------------------------------------------")
 print("-----------------------Baseline--------------------")
 
 
@@ -201,12 +201,12 @@ print("---------------------------------------------------")
 print("-----------------------LabeledFewShot--------------")
 
 
-fewshot_optimzer = LabeledFewShot(k=4)
+fewshot_optimizer = LabeledFewShot(k=4)
 
 
-fewshot_optimzer_compile = fewshot_optimzer.compile(people_extractor, trainset=train_set)
+fewshot_optimizer_compile = fewshot_optimizer.compile(people_extractor, trainset=train_set)
 
-evaluate_correctness(fewshot_optimzer_compile, devset=test_set)
+evaluate_correctness(fewshot_optimizer_compile, devset=test_set)
 
 dspy.inspect_history(n=1)
 
@@ -231,7 +231,7 @@ evaluate_correctness(knn_fewshot_optimizer_compile, devset=test_set)
 
 dspy.inspect_history(n=1)
 
-
+'''
 
 print("---------------------------------------------------")
 print("-----------------------MIPROv2----------------------")
@@ -252,8 +252,14 @@ mipro_optimized_people_extractor = mipro_optimizer.compile(
     minibatch= True,
     requires_permission_to_run=False,
 )
+'''
+mipro_optimized_people_extractor.save('miprosave.json')
+'''
 
 
+'''mipro_optimized_people_extractor = people_extractor
+mipro_optimized_people_extractor.load(path='miprosave.json')
+'''
 evaluate_correctness(mipro_optimized_people_extractor, devset=test_set)
 dspy.inspect_history(n=1)
 
@@ -284,7 +290,6 @@ with dspy.context(num_completions=1):
 
 evaluate_correctness(copro_optimizer_compiled, devset=test_set)
 dspy.inspect_history(n=1)
-
 
 
 print("---------------------------------------------------")
