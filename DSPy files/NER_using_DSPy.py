@@ -129,7 +129,7 @@ class PeopleExtraction(dspy.Signature):
 # Configures the LLM endpoint
 # retrieving the API base URL from the environment variable.
 
-llm= "ollama_chat/gemma3:27b"
+llm= "ollama_chat/gemma3:27b"   #change with other LLMs accordingly
 api=os.getenv("LOCAL_API")
 
 print("---------------------------------")
