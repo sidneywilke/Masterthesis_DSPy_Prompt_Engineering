@@ -4,16 +4,12 @@ import dspy
 import logging
 import sys
 from dotenv import load_dotenv
-
 from dspy import LabeledFewShot, KNNFewShot, COPRO
 import litellm
 litellm.drop_params = True
-
+import os
 load_dotenv()
 
-#mlflow.set_tracking_uri("http://localhost:5000")
-#mlflow.set_experiment("DSPy")
-#mlflow.dspy.autolog()
 
 # Logging the terminal outputs to a txt file to evaluate at as later stage
 logger = logging.getLogger('my_logger')
@@ -81,6 +77,9 @@ def extract_people_entities(data_row: Dict[str, Any]) -> List[str]:
         if ner_tag in (1, 2)  # CoNLL entity codes 1 and 2 refer to people
     ]
 
+# Converts a specified slice of the dataset split into DSPy Examples.
+# Each Example includes the tokenized text and its expected people entities,
+# making the data ready for NER-style processing in DSPy.
 
 def prepare_dataset(data_split, start: int, end: int) -> List[dspy.Example]:
     """
@@ -112,6 +111,10 @@ test_set = prepare_dataset(dataset["test"], 1500, 2500)
 
 
 
+# Defines a DSPy Signature for extracting person-related tokens.
+# Input: tokenized text.
+# Output: list of tokens that individually correspond to names of specific people,
+# preserving token boundaries (no joining into full names).
 
 class PeopleExtraction(dspy.Signature):
     """
@@ -122,7 +125,9 @@ class PeopleExtraction(dspy.Signature):
     extracted_people: list[str] = dspy.OutputField(desc="all tokens referring to specific people extracted from the tokenized text")
 
 
-import os
+
+# Configures the LLM endpoint
+# retrieving the API base URL from the environment variable.
 
 llm= "ollama_chat/gemma3:27b"
 api=os.getenv("LOCAL_API")
@@ -130,28 +135,38 @@ api=os.getenv("LOCAL_API")
 print("---------------------------------")
 print(llm+"  "+api+" Runde 1")
 
+
+
+# Sets up a Chain-of-Thought people extractor and configure DSPy with the local LLM.
 people_extractor = dspy.ChainOfThought(PeopleExtraction)
 lm = dspy.LM(llm, api_base=api, api_key='', cache=False)
 dspy.configure(lm=lm)
 
 
-
+# Calculates precision: proportion of true positives among all predicted positives.
+# Returns 0.0 if there are no positive predictions to avoid division by zero.
 def precision(tp: int, fp: int) -> float:
-    # Handle division by zero
+   
     return 0.0 if tp + fp == 0 else tp / (tp + fp)
 
 
+# Calculate recall: proportion of true positives among all actual positives.
+# Returns 0.0 if there are no actual positives to avoid division by zero.
 def recall(tp: int, fn: int) -> float:
     return 0.0 if tp + fn == 0 else tp / (tp + fn)
 
 
+# Calculates the F1 score: harmonic mean of precision and recall.
+# Returns 0.0 if both precision and recall are zero to avoid division by zero.
 def f1_score(tp: int, fp: int, fn: int) -> float:
     prec = precision(tp, fp)
     rec = recall(tp, fn)
     return 0.0 if prec + rec == 0 else 2 * (prec * rec) / (prec + rec)
 
 
-
+# Evaluates the extraction quality by comparing predicted people entities to the gold standard.
+# Converts both sets to unique tokens, computes true positives, false positives, and false negatives,
+# and returns the F1 score. Special case: counts as correct if both gold and prediction are empty.
 def extraction_correctness_metric(example: dspy.Example, prediction: dspy.Prediction, trace=None) -> float:
     """
     Computes correctness of entity extraction predictions.
@@ -180,6 +195,9 @@ def extraction_correctness_metric(example: dspy.Example, prediction: dspy.Predic
     return f1_score(tp, fp, fn)
 
 
+# Set up DSPy evaluation on the test set using the custom extraction correctness metric.
+# Runs in parallel with 24 threads, shows progress and results in a table, 
+# and returns both metrics and raw outputs.
 
 evaluate_correctness = dspy.Evaluate(
     devset=test_set,
@@ -190,11 +208,18 @@ evaluate_correctness = dspy.Evaluate(
     return_outputs=True
 )
 
-'''print("---------------------------------------------------")
+print("---------------------------------------------------")
 print("-----------------------Baseline--------------------")
 
 
 evaluate_correctness(people_extractor, devset=test_set, return_outputs=True)
+
+
+# Runs evaluation with every optimizer:
+# 1. Initialize
+# 2. Compile the people_extractor with the optimizer.
+# 3. Evaluate performance on the test set using the extraction correctness metric.
+# 4. Inspect the most recent run's reasoning/history.
 
 
 print("---------------------------------------------------")
@@ -253,12 +278,7 @@ mipro_optimized_people_extractor = mipro_optimizer.compile(
     requires_permission_to_run=False,
 )
 
-mipro_optimized_people_extractor.save('miprosave.json')
 
-
-
-mipro_optimized_people_extractor = people_extractor
-mipro_optimized_people_extractor.load(path='miprosave.json')
 
 evaluate_correctness(mipro_optimized_people_extractor, devset=test_set)
 dspy.inspect_history(n=1)
@@ -291,7 +311,6 @@ evaluate_correctness(copro_optimizer_compiled, devset=test_set)
 dspy.inspect_history(n=1)
 
 
-
 print("---------------------------------------------------")
 print("-----------------------BootstrapFewShot------------")
 
@@ -310,15 +329,13 @@ bootstrap_fewshot_optimizer_compiled=bootstrap_fewshot_optimizer.compile(people_
 
 
 evaluate_correctness(bootstrap_fewshot_optimizer_compiled, devset=test_set)
-
-
 dspy.inspect_history(n=1)
 
-'''
+
 print("---------------------------------------------------")
 print("-------BootstrapFewShotWithRandomSearch------------")
 
-#BootstrapFewShot optimization
+
 from dspy.teleprompt import BootstrapFewShotWithRandomSearch
 bootstrap_fewshot_withrandom_optimizer = BootstrapFewShotWithRandomSearch(
     metric=extraction_correctness_metric,
@@ -330,8 +347,6 @@ bootstrap_fewshot_withrandom_optimizer_compiled=bootstrap_fewshot_withrandom_opt
 
 
 evaluate_correctness(bootstrap_fewshot_withrandom_optimizer_compiled, devset=test_set)
-
-
 dspy.inspect_history(n=1)
 
 
