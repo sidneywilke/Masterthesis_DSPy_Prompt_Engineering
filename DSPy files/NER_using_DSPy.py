@@ -5,6 +5,7 @@ import logging
 import sys
 from dotenv import load_dotenv
 from dspy import LabeledFewShot, KNNFewShot, COPRO
+from dspy.teleprompt import BootstrapFewShotWithRandomSearch, BootstrapFewShot
 import litellm
 litellm.drop_params = True
 import os
@@ -315,7 +316,7 @@ print("---------------------------------------------------")
 print("-----------------------BootstrapFewShot------------")
 
 
-from dspy.teleprompt import BootstrapFewShot
+
 bootstrap_fewshot_optimizer= BootstrapFewShot(
     metric=extraction_correctness_metric,
     max_bootstrapped_demos=4,
@@ -336,7 +337,7 @@ print("---------------------------------------------------")
 print("-------BootstrapFewShotWithRandomSearch------------")
 
 
-from dspy.teleprompt import BootstrapFewShotWithRandomSearch
+
 bootstrap_fewshot_withrandom_optimizer = BootstrapFewShotWithRandomSearch(
     metric=extraction_correctness_metric,
     max_bootstrapped_demos=4,
